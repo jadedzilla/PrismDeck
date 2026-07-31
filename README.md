@@ -9,8 +9,6 @@ It is designed with Steam Big Picture-style navigation, dynamic controller hints
 - Detects Prism Launcher modpack instances from native and Flatpak Prism Launcher installations
 - Controller-first navigation with D-pad and left stick support
 - Dynamic button prompts based on detected controller type (Xbox, PlayStation, generic)
-- Countdown launch popup with cancel support
-- Embedded background image and selection sound asset
 - Single binary desktop launcher built with `eframe` and `gilrs`
 
 ## Build
@@ -44,6 +42,5 @@ Or execute the binary directly:
 
 ## Notes
 
-- The launcher embeds its background and sound assets directly into the binary.
 - Use the refresh control to rediscover Prism Launcher modpacks after installation or configuration changes.
 - The launch popup gives a 3-second countdown before launching, allowing cancellation with the same confirm or back button.
