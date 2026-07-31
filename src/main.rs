@@ -791,18 +791,6 @@ impl App for PrismLauncherApp {
                                     text_color,
                                 );
 
-                                let hint_text = if selected {
-                                    "Selected"
-                                } else {
-                                    "Use D-pad left/right to move and confirm to launch."
-                                };
-                                ui.painter().text(
-                                    rect.center_bottom() + egui::vec2(0.0, -22.0),
-                                    egui::Align2::CENTER_BOTTOM,
-                                    hint_text,
-                                    egui::TextStyle::Body.resolve(ui.style()),
-                                    text_color,
-                                );
                             });
                         }
                         ui.add_space(8.0);
