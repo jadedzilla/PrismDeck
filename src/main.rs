@@ -685,7 +685,7 @@ impl PrismLauncherApp {
         self.message = if self.instances.is_empty() {
             "No Prism Launcher modpacks found. Confirm to refresh.".into()
         } else {
-            "Modpack instances refreshed. Use confirm to launch and cancel to quit.".into()
+            "Modpack instances refreshed. Use select to launch and back to quit.".into()
         };
     }
  
@@ -938,7 +938,7 @@ impl App for PrismLauncherApp {
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.separator();
-                ui.label("Made for Steam Big Picture. Press the back button or Esc to exit.");
+                ui.label("Made with ♥ by jadedzilla. Press the back button or Esc to exit.");
             });
         });
 
