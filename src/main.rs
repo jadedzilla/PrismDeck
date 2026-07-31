@@ -472,6 +472,10 @@ impl PrismLauncherApp {
             "logo.jpg",
             "instance.png",
             "instance_icon.png",
+            "minecraft/icon.png",
+            "minecraft/icon.jpg",
+            "minecraft/icon.jpeg",
+            "minecraft/logo.png",
         ];
 
         for candidate in icon_candidates {
