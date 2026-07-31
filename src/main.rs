@@ -719,7 +719,7 @@ impl App for PrismLauncherApp {
                             ui.add_space(8.0);
                             ui.vertical(|ui| {
                                 let label_height = 38.0;
-                                let label_rect = ui.allocate_exact_size(
+                                let (label_rect, _label_response) = ui.allocate_exact_size(
                                     egui::vec2(card_size.x, label_height),
                                     egui::Sense::hover(),
                                 );
@@ -727,10 +727,8 @@ impl App for PrismLauncherApp {
                                     ui.painter().text(
                                         label_rect.center(),
                                         egui::Align2::CENTER_CENTER,
-                                        egui::RichText::new(&instance.name)
-                                            .strong()
-                                            .size(18.0),
-                                        egui::TextStyle::Body.resolve(ui.style()),
+                                        instance.name.clone(),
+                                        egui::FontId::proportional(18.0),
                                         ui.visuals().strong_text_color(),
                                     );
                                 }
