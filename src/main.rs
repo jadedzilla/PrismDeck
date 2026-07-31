@@ -70,16 +70,16 @@ struct PrismLauncherApp {
     selected_index: usize,
     message: String,
     controller_style: ControllerStyle,
-    gilrs: Gilrs,
+    gilrs: Option<Gilrs>,
 }
 
 impl PrismLauncherApp {
     fn new() -> Self {
-        let mut gilrs = Gilrs::new().unwrap_or_else(|err| {
-            eprintln!("Unable to initialize gamepad input: {err}");
-            std::process::exit(1);
-        });
-        let controller_style = Self::detect_style(&mut gilrs).unwrap_or(ControllerStyle::Generic);
+        let mut gilrs = Gilrs::new().ok();
+        let controller_style = gilrs
+            .as_mut()
+            .and_then(Self::detect_style)
+            .unwrap_or(ControllerStyle::Generic);
 
         let instances = Self::discover_instances();
         let selected_index = if instances.is_empty() { 0 } else { 0 };
@@ -205,32 +205,43 @@ impl PrismLauncherApp {
     }
 
     fn handle_gamepad_events(&mut self) {
-        while let Some(Event { event, .. }) = self.gilrs.next_event() {
-            match event {
-                EventType::ButtonPressed(button, _) => match button {
-                    Button::DPadDown => {
-                        if !self.instances.is_empty() {
-                            self.selected_index = (self.selected_index + 1) % self.instances.len();
+        if let Some(gilrs) = &mut self.gilrs {
+            let mut events = Vec::new();
+            while let Some(Event { event, .. }) = gilrs.next_event() {
+                events.push(event);
+            }
+
+            for event in events {
+                match event {
+                    EventType::ButtonPressed(button, _) => match button {
+                        Button::DPadDown => {
+                            if !self.instances.is_empty() {
+                                self.selected_index = (self.selected_index + 1) % self.instances.len();
+                            }
                         }
-                    }
-                    Button::DPadUp => {
-                        if !self.instances.is_empty() {
-                            self.selected_index = if self.selected_index == 0 {
-                                self.instances.len() - 1
-                            } else {
-                                self.selected_index - 1
-                            };
+                        Button::DPadUp => {
+                            if !self.instances.is_empty() {
+                                self.selected_index = if self.selected_index == 0 {
+                                    self.instances.len() - 1
+                                } else {
+                                    self.selected_index - 1
+                                };
+                            }
                         }
+                        Button::South => self.launch_selected(),
+                        Button::East => std::process::exit(0),
+                        Button::North => self.refresh_instances(),
+                        _ => {}
+                    },
+                    EventType::Connected => {
+                        self.controller_style = self
+                            .gilrs
+                            .as_mut()
+                            .and_then(Self::detect_style)
+                            .unwrap_or(ControllerStyle::Generic);
                     }
-                    Button::South => self.launch_selected(),
-                    Button::East => std::process::exit(0),
-                    Button::North => self.refresh_instances(),
                     _ => {}
-                },
-                EventType::Connected => {
-                    self.controller_style = Self::detect_style(&mut self.gilrs).unwrap_or(ControllerStyle::Generic);
                 }
-                _ => {}
             }
         }
     }
