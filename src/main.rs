@@ -6,6 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+const BACKGROUND_IMAGE: &[u8] = include_bytes!("../assets/launcher_background.png");
+
 fn main() {
     let mut options = NativeOptions::default();
     options.viewport = egui::ViewportBuilder::default()
@@ -80,6 +82,7 @@ struct PrismLauncherApp {
     native_launcher: Option<PathBuf>,
     instances: Vec<PrismInstance>,
     instance_textures: Vec<Option<egui::TextureHandle>>,
+    background_texture: Option<egui::TextureHandle>,
     selected_index: usize,
     message: String,
     controller_style: ControllerStyle,
@@ -107,6 +110,7 @@ impl PrismLauncherApp {
             native_launcher,
             instances,
             instance_textures: Vec::new(),
+            background_texture: None,
             selected_index,
             message,
             controller_style,
@@ -522,7 +526,7 @@ impl PrismLauncherApp {
         if self.instance_textures.len() != self.instances.len() {
             self.instance_textures = vec![None; self.instances.len()];
         }
-
+ 
         for (index, instance) in self.instances.iter().enumerate() {
             if self.instance_textures[index].is_none() {
                 self.instance_textures[index] = instance
@@ -530,6 +534,10 @@ impl PrismLauncherApp {
                     .as_ref()
                     .and_then(|path| Self::load_icon_texture(ctx, path));
             }
+        }
+ 
+        if self.background_texture.is_none() {
+            self.background_texture = Self::load_background_texture(ctx);
         }
     }
 
@@ -539,6 +547,17 @@ impl PrismLauncherApp {
         let pixels = image.into_raw();
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
         Some(ctx.load_texture(icon_path.to_string_lossy(), color_image, Default::default()))
+    }
+ 
+    fn load_background_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+        let image = image::load_from_memory_with_format(BACKGROUND_IMAGE, image::ImageFormat::Png)
+            .ok()?
+            .to_rgba8();
+        let image = image::imageops::blur(&image, 12.0);
+        let size = [image.width() as usize, image.height() as usize];
+        let pixels = image.into_raw();
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+        Some(ctx.load_texture("launcher_background", color_image, Default::default()))
     }
 
     fn flatpak_available() -> bool {
@@ -684,7 +703,28 @@ impl App for PrismLauncherApp {
         }
         self.ensure_instance_textures(ctx);
         self.controller_style = self.controller_style.clone();
-
+ 
+        if let Some(background) = &self.background_texture {
+            let full_rect = ctx.input(|i| i.screen_rect());
+            let mut shape = egui::epaint::RectShape::new(
+                full_rect,
+                egui::Rounding::same(0.0),
+                egui::Color32::WHITE,
+                egui::Stroke::NONE,
+            );
+            shape.fill_texture_id = background.id();
+            shape.uv = egui::Rect::from_min_max(
+                egui::Pos2::new(0.0, 0.0),
+                egui::Pos2::new(1.0, 1.0),
+            );
+            ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::Rect(shape));
+            ctx.layer_painter(egui::LayerId::background()).rect_filled(
+                full_rect,
+                egui::Rounding::same(0.0),
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+            );
+        }
+ 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("PrismDeck Controller Launcher");
             ui.label("Detected Prism Launcher modpacks from native and Flatpak installations.");
