@@ -34,6 +34,12 @@ enum ControllerStyle {
     Generic,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InputDevice {
+    Controller,
+    Keyboard,
+}
+
 impl ControllerStyle {
     fn confirm_button_label(&self) -> &'static str {
         match self {
@@ -89,6 +95,7 @@ struct PrismLauncherApp {
     selected_index: usize,
     message: String,
     controller_style: ControllerStyle,
+    input_device: InputDevice,
     gilrs: Option<Gilrs>,
     left_stick_direction: i8,
     audio_stream: Option<OutputStream>,
@@ -104,7 +111,12 @@ impl PrismLauncherApp {
             .as_mut()
             .and_then(Self::detect_style)
             .unwrap_or(ControllerStyle::Generic);
-
+        let input_device = gilrs
+            .as_ref()
+            .filter(|g| g.gamepads().next().is_some())
+            .map(|_| InputDevice::Controller)
+            .unwrap_or(InputDevice::Keyboard);
+ 
         let (native_launcher, instances) = Self::discover_instances();
         let selected_index = if instances.is_empty() { 0 } else { 0 };
         let message = if instances.is_empty() {
@@ -131,6 +143,7 @@ impl PrismLauncherApp {
             audio_stream,
             audio_stream_handle,
             active_sinks: Vec::new(),
+            input_device,
             window_focused: true,
         }
     }
@@ -719,19 +732,19 @@ impl PrismLauncherApp {
  
             for event in events {
                 match event {
-                    EventType::ButtonPressed(button, _) => match button {
-                        Button::DPadRight => {
-                            self.move_selection(1);
+                    EventType::ButtonPressed(button, _) => {
+                        self.input_device = InputDevice::Controller;
+                        match button {
+                            Button::DPadRight => self.move_selection(1),
+                            Button::DPadLeft => self.move_selection(-1),
+                            Button::South => self.launch_selected(),
+                            Button::East => std::process::exit(0),
+                            Button::North => self.refresh_instances(),
+                            _ => {}
                         }
-                        Button::DPadLeft => {
-                            self.move_selection(-1);
-                        }
-                        Button::South => self.launch_selected(),
-                        Button::East => std::process::exit(0),
-                        Button::North => self.refresh_instances(),
-                        _ => {}
-                    },
+                    }
                     EventType::AxisChanged(axis, value, _) => {
+                        self.input_device = InputDevice::Controller;
                         if axis == Axis::LeftStickX {
                             let direction = if value > STICK_THRESHOLD {
                                 1
@@ -757,6 +770,7 @@ impl PrismLauncherApp {
                             .as_mut()
                             .and_then(Self::detect_style)
                             .unwrap_or(ControllerStyle::Generic);
+                        self.input_device = InputDevice::Controller;
                     }
                     _ => {}
                 }
@@ -814,16 +828,28 @@ impl App for PrismLauncherApp {
 
             ui.horizontal(|ui| {
                 ui.label("Navigate:");
-                ui.label("D-Pad or left stick left/right");
+                ui.label(match self.input_device {
+                    InputDevice::Controller => "D-Pad or left stick left/right",
+                    InputDevice::Keyboard => "Left/right arrows",
+                });
                 ui.separator();
                 ui.label("Select:");
-                ui.label(self.controller_style.confirm_button_label());
+                ui.label(match self.input_device {
+                    InputDevice::Controller => self.controller_style.confirm_button_label(),
+                    InputDevice::Keyboard => "Enter",
+                });
                 ui.separator();
                 ui.label("Back:");
-                ui.label(self.controller_style.cancel_button_label());
+                ui.label(match self.input_device {
+                    InputDevice::Controller => self.controller_style.cancel_button_label(),
+                    InputDevice::Keyboard => "Esc",
+                });
                 ui.separator();
                 ui.label("Refresh:");
-                ui.label(self.controller_style.refresh_button_label());
+                ui.label(match self.input_device {
+                    InputDevice::Controller => self.controller_style.refresh_button_label(),
+                    InputDevice::Keyboard => "R",
+                });
             });
             ui.separator();
 
@@ -917,18 +943,23 @@ impl App for PrismLauncherApp {
         });
 
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+            self.input_device = InputDevice::Keyboard;
             self.move_selection(1);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+            self.input_device = InputDevice::Keyboard;
             self.move_selection(-1);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            self.input_device = InputDevice::Keyboard;
             self.launch_selected();
         }
         if ctx.input(|i| i.key_pressed(egui::Key::R)) {
+            self.input_device = InputDevice::Keyboard;
             self.refresh_instances();
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.input_device = InputDevice::Keyboard;
             std::process::exit(0);
         }
 
