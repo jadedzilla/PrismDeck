@@ -1,12 +1,15 @@
 use eframe::{egui, App, Frame, NativeOptions};
 use gilrs::{Axis, Button, Event, EventType, Gilrs};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const BACKGROUND_IMAGE: &[u8] = include_bytes!("../assets/launcher_background.png");
+const SELECT_SOUND: &[u8] = include_bytes!("../assets/select8.wav");
 
 fn main() {
     let mut options = NativeOptions::default();
@@ -88,6 +91,9 @@ struct PrismLauncherApp {
     controller_style: ControllerStyle,
     gilrs: Option<Gilrs>,
     left_stick_direction: i8,
+    audio_stream: Option<OutputStream>,
+    audio_stream_handle: Option<OutputStreamHandle>,
+    active_sinks: Vec<Sink>,
     window_focused: bool,
 }
 
@@ -107,6 +113,11 @@ impl PrismLauncherApp {
             "Use your controller to choose a Prism Launcher modpack and press confirm.".into()
         };
 
+        let (audio_stream, audio_stream_handle) = match OutputStream::try_default() {
+            Ok((stream, handle)) => (Some(stream), Some(handle)),
+            Err(_) => (None, None),
+        };
+ 
         Self {
             native_launcher,
             instances,
@@ -117,6 +128,9 @@ impl PrismLauncherApp {
             controller_style,
             gilrs,
             left_stick_direction: 0,
+            audio_stream,
+            audio_stream_handle,
+            active_sinks: Vec::new(),
             window_focused: true,
         }
     }
@@ -561,7 +575,26 @@ impl PrismLauncherApp {
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
         Some(ctx.load_texture("launcher_background", color_image, Default::default()))
     }
-
+ 
+    fn play_select_sound(&mut self) {
+        if self.audio_stream.is_none() {
+            return;
+        }
+ 
+        let stream_handle = match self.audio_stream_handle.as_ref() {
+            Some(handle) => handle,
+            None => return,
+        };
+ 
+        if let Ok(source) = Decoder::new(Cursor::new(SELECT_SOUND)) {
+            if let Ok(sink) = Sink::try_new(stream_handle) {
+                sink.append(source);
+                self.active_sinks.retain(|sink| !sink.empty());
+                self.active_sinks.push(sink);
+            }
+        }
+    }
+ 
     fn flatpak_available() -> bool {
         if which::which("flatpak").is_err() {
             return false;
@@ -642,7 +675,29 @@ impl PrismLauncherApp {
             "Modpack instances refreshed. Use confirm to launch and cancel to quit.".into()
         };
     }
-
+ 
+    fn move_selection(&mut self, delta: i32) {
+        if self.instances.is_empty() {
+            return;
+        }
+        let len = self.instances.len();
+        let new_index = if delta > 0 {
+            (self.selected_index + 1) % len
+        } else if delta < 0 {
+            if self.selected_index == 0 {
+                len - 1
+            } else {
+                self.selected_index - 1
+            }
+        } else {
+            self.selected_index
+        };
+        if new_index != self.selected_index {
+            self.selected_index = new_index;
+            self.play_select_sound();
+        }
+    }
+ 
     fn update_window_focus(&mut self, ctx: &egui::Context) {
         ctx.input(|input| {
             for event in input.raw.events.iter() {
@@ -666,19 +721,10 @@ impl PrismLauncherApp {
                 match event {
                     EventType::ButtonPressed(button, _) => match button {
                         Button::DPadRight => {
-                            if !self.instances.is_empty() {
-                                self.selected_index =
-                                    (self.selected_index + 1) % self.instances.len();
-                            }
+                            self.move_selection(1);
                         }
                         Button::DPadLeft => {
-                            if !self.instances.is_empty() {
-                                self.selected_index = if self.selected_index == 0 {
-                                    self.instances.len() - 1
-                                } else {
-                                    self.selected_index - 1
-                                };
-                            }
+                            self.move_selection(-1);
                         }
                         Button::South => self.launch_selected(),
                         Button::East => std::process::exit(0),
@@ -697,16 +743,10 @@ impl PrismLauncherApp {
  
                             if direction != self.left_stick_direction {
                                 self.left_stick_direction = direction;
-                                if direction > 0 && !self.instances.is_empty() {
-                                    self.selected_index =
-                                        (self.selected_index + 1) % self.instances.len();
-                                }
-                                if direction < 0 && !self.instances.is_empty() {
-                                    self.selected_index = if self.selected_index == 0 {
-                                        self.instances.len() - 1
-                                    } else {
-                                        self.selected_index - 1
-                                    };
+                                if direction > 0 {
+                                    self.move_selection(1);
+                                } else if direction < 0 {
+                                    self.move_selection(-1);
                                 }
                             }
                         }
@@ -877,18 +917,10 @@ impl App for PrismLauncherApp {
         });
 
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-            if !self.instances.is_empty() {
-                self.selected_index = (self.selected_index + 1) % self.instances.len();
-            }
+            self.move_selection(1);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
-            if !self.instances.is_empty() {
-                self.selected_index = if self.selected_index == 0 {
-                    self.instances.len().saturating_sub(1)
-                } else {
-                    self.selected_index - 1
-                };
-            }
+            self.move_selection(-1);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             self.launch_selected();
