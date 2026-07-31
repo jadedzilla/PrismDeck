@@ -824,7 +824,7 @@ impl App for PrismLauncherApp {
                                 };
                                 let rounding = egui::Rounding::same(24.0);
                                 let stroke = if selected {
-                                    egui::Stroke::new(3.0_f32, ui.visuals().selection.stroke.color)
+                                    egui::Stroke::new(5.0_f32, ui.visuals().selection.stroke.color)
                                 } else {
                                     egui::Stroke::new(
                                         1.0_f32,
