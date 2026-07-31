@@ -850,12 +850,12 @@ impl App for PrismLauncherApp {
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 full_rect,
                 egui::Rounding::same(0.0),
-                egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 80),
             );
         }
 
         let panel_frame = egui::Frame {
-            fill: egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+            fill: egui::Color32::from_rgba_premultiplied(0, 0, 0, 60),
             stroke: egui::Stroke::new(0.0_f32, egui::Color32::TRANSPARENT),
             inner_margin: 12.0.into(),
             outer_margin: 0.0.into(),
@@ -995,7 +995,7 @@ impl App for PrismLauncherApp {
                                         .and_then(|t| t.as_ref())
                                         .is_some()
                                     {
-                                        egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+                                        egui::Color32::from_rgba_premultiplied(0, 0, 0, 30)
                                     } else {
                                         egui::Color32::TRANSPARENT
                                     };
