@@ -1,5 +1,6 @@
 use eframe::{egui, App, Frame, NativeOptions};
 use gilrs::{Button, Event, EventType, Gilrs};
+use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -61,11 +62,18 @@ enum PrismInstanceKind {
 #[derive(Clone)]
 struct PrismInstance {
     name: String,
-    command: String,
+    instance_path: PathBuf,
     kind: PrismInstanceKind,
 }
 
+#[derive(Clone)]
+struct PrismModpack {
+    name: String,
+    path: PathBuf,
+}
+
 struct PrismLauncherApp {
+    native_launcher: Option<PathBuf>,
     instances: Vec<PrismInstance>,
     selected_index: usize,
     message: String,
@@ -81,15 +89,16 @@ impl PrismLauncherApp {
             .and_then(Self::detect_style)
             .unwrap_or(ControllerStyle::Generic);
 
-        let instances = Self::discover_instances();
+        let (native_launcher, instances) = Self::discover_instances();
         let selected_index = if instances.is_empty() { 0 } else { 0 };
         let message = if instances.is_empty() {
-            "No Prism Launcher instances found. Use a controller or keyboard to refresh.".into()
+            "No Prism Launcher modpacks found. Use a controller or keyboard to refresh.".into()
         } else {
-            "Use your controller to choose a Prism Launcher instance and press confirm.".into()
+            "Use your controller to choose a Prism Launcher modpack and press confirm.".into()
         };
 
         Self {
+            native_launcher,
             instances,
             selected_index,
             message,
@@ -116,23 +125,29 @@ impl PrismLauncherApp {
         None
     }
 
-    fn discover_instances() -> Vec<PrismInstance> {
+    fn discover_instances() -> (Option<PathBuf>, Vec<PrismInstance>) {
+        let native_launcher = Self::find_native_prism_launcher();
         let mut instances = Vec::new();
-        if let Some(path) = Self::find_native_prism_launcher() {
+
+        for modpack in Self::discover_modpacks(&Self::native_instance_paths()) {
             instances.push(PrismInstance {
-                name: "Prism Launcher (native)".into(),
-                command: path.to_string_lossy().into_owned(),
+                name: modpack.name,
+                instance_path: modpack.path,
                 kind: PrismInstanceKind::Native,
             });
         }
+
         if Self::flatpak_available() {
-            instances.push(PrismInstance {
-                name: "Prism Launcher (Flatpak)".into(),
-                command: "flatpak run org.prismlauncher.PrismLauncher".into(),
-                kind: PrismInstanceKind::Flatpak,
-            });
+            for modpack in Self::discover_modpacks(&Self::flatpak_instance_paths()) {
+                instances.push(PrismInstance {
+                    name: modpack.name,
+                    instance_path: modpack.path,
+                    kind: PrismInstanceKind::Flatpak,
+                });
+            }
         }
-        instances
+
+        (native_launcher, instances)
     }
 
     fn find_native_prism_launcher() -> Option<PathBuf> {
@@ -160,6 +175,76 @@ impl PrismLauncherApp {
         None
     }
 
+    fn native_instance_paths() -> Vec<PathBuf> {
+        let candidates = vec![
+            "~/.local/share/PrismLauncher/instances",
+            "~/.local/share/prismlauncher/instances",
+            "~/.local/share/prism-launcher/instances",
+            "~/.config/prism-launcher/instances",
+            "~/.config/prismlauncher/instances",
+            "~/.config/PrismLauncher/instances",
+        ];
+        Self::expand_paths(candidates)
+    }
+
+    fn flatpak_instance_paths() -> Vec<PathBuf> {
+        let candidates = vec![
+            "~/.var/app/org.prismlauncher.PrismLauncher/.local/share/prismlauncher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/.local/share/PrismLauncher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/.local/share/prism-launcher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/.config/prismlauncher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/.config/prism-launcher/instances",
+        ];
+        Self::expand_paths(candidates)
+    }
+
+    fn expand_paths(paths: Vec<&str>) -> Vec<PathBuf> {
+        paths
+            .into_iter()
+            .map(|path| PathBuf::from(shellexpand::tilde(path).into_owned()))
+            .collect()
+    }
+
+    fn discover_modpacks(paths: &[PathBuf]) -> Vec<PrismModpack> {
+        let mut instances = Vec::new();
+
+        for path in paths {
+            if !path.exists() || !path.is_dir() {
+                continue;
+            }
+            if let Ok(entries) = fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    let entry_path = entry.path();
+                    if !entry_path.is_dir() {
+                        continue;
+                    }
+                    let name = Self::read_modpack_name(&entry_path)
+                        .unwrap_or_else(|| entry_path.file_name().unwrap_or_default().to_string_lossy().into_owned());
+                    instances.push(PrismModpack { name, path: entry_path });
+                }
+            }
+        }
+
+        instances
+    }
+
+    fn read_modpack_name(instance_dir: &PathBuf) -> Option<String> {
+        let cfg_paths = [instance_dir.join("instance.cfg"), instance_dir.join(".minecraft/instance.cfg")];
+        for path in cfg_paths {
+            if let Ok(contents) = fs::read_to_string(&path) {
+                for line in contents.lines() {
+                    if let Some(name) = line.strip_prefix("name=") {
+                        return Some(name.trim().to_owned());
+                    }
+                    if let Some(name) = line.strip_prefix("displayName=") {
+                        return Some(name.trim().to_owned());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     fn flatpak_available() -> bool {
         if which::which("flatpak").is_err() {
             return false;
@@ -175,17 +260,30 @@ impl PrismLauncherApp {
 
     fn launch_selected(&mut self) {
         if self.instances.is_empty() {
-            self.message = "Nothing to launch. Refresh to detect Prism Launcher instances.".into();
+            self.message = "Nothing to launch. Refresh to detect Prism Launcher modpacks.".into();
             return;
         }
 
         let instance = &self.instances[self.selected_index];
-        let result = if matches!(instance.kind, PrismInstanceKind::Flatpak) {
-            Command::new("flatpak")
-                .args(["run", "org.prismlauncher.PrismLauncher"])
-                .spawn()
-        } else {
-            Command::new(&instance.command).spawn()
+        let result = match instance.kind {
+            PrismInstanceKind::Flatpak => Command::new("flatpak")
+                .args([
+                    "run",
+                    "org.prismlauncher.PrismLauncher",
+                    "--instance",
+                    &instance.instance_path.to_string_lossy(),
+                ])
+                .spawn(),
+            PrismInstanceKind::Native => {
+                let launcher = self
+                    .native_launcher
+                    .as_deref()
+                    .map(|path| path.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("prism-launcher"));
+                Command::new(launcher)
+                    .args(["--instance", &instance.instance_path.to_string_lossy()])
+                    .spawn()
+            }
         };
 
         match result {
@@ -195,12 +293,14 @@ impl PrismLauncherApp {
     }
 
     fn refresh_instances(&mut self) {
-        self.instances = Self::discover_instances();
+        let (_native_launcher, instances) = Self::discover_instances();
+        self.native_launcher = _native_launcher;
+        self.instances = instances;
         self.selected_index = self.instances.get(0).is_some().then_some(0).unwrap_or(0);
         self.message = if self.instances.is_empty() {
-            "No Prism Launcher instances found. Confirm to refresh.".into()
+            "No Prism Launcher modpacks found. Confirm to refresh.".into()
         } else {
-            "Instances refreshed. Use confirm to launch and cancel to quit.".into()
+            "Modpack instances refreshed. Use confirm to launch and cancel to quit.".into()
         };
     }
 
@@ -256,6 +356,7 @@ impl App for PrismLauncherApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("PrismDeck Controller Launcher");
+            ui.label("Detected Prism Launcher modpacks from native and Flatpak installations.");
             ui.label(&self.message);
             ui.separator();
 
@@ -275,7 +376,7 @@ impl App for PrismLauncherApp {
             ui.separator();
 
             if self.instances.is_empty() {
-                ui.label("No Prism Launcher instances detected.");
+                ui.label("No Prism Launcher modpacks detected.");
             } else {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (index, instance) in self.instances.iter().enumerate() {
@@ -288,8 +389,8 @@ impl App for PrismLauncherApp {
                                 ui.vertical(|ui| {
                                     ui.label(&instance.name);
                                     ui.label(match instance.kind {
-                                        PrismInstanceKind::Native => "Native executable",
-                                        PrismInstanceKind::Flatpak => "Flatpak sandbox",
+                                        PrismInstanceKind::Native => "Native modpack",
+                                        PrismInstanceKind::Flatpak => "Flatpak modpack",
                                     });
                                 });
                             });
