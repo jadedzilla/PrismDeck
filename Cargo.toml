@@ -1,0 +1,11 @@
+[package]
+name = "prismdeck-launcher"
+version = "0.1.0"
+authors = ["PrismDeck Team"]
+edition = "2021"
+
+[dependencies]
+eframe = "0.26"
+gilrs = "0.9"
+which = "4.4"
+shellexpand = "2.1"
