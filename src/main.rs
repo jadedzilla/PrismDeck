@@ -99,12 +99,13 @@ struct PrismLauncherApp {
     gilrs: Option<Gilrs>,
     left_stick_direction: i8,
     selection_animation_start: Option<f64>,
+    pending_launch_index: Option<usize>,
+    launch_countdown_start: Option<f64>,
     audio_stream: Option<OutputStream>,
     audio_stream_handle: Option<OutputStreamHandle>,
     active_sinks: Vec<Sink>,
     window_focused: bool,
 }
-
 impl PrismLauncherApp {
     fn new() -> Self {
         let mut gilrs = Gilrs::new().ok();
@@ -142,6 +143,8 @@ impl PrismLauncherApp {
             gilrs,
             left_stick_direction: 0,
             selection_animation_start: None,
+            pending_launch_index: None,
+            launch_countdown_start: None,
             audio_stream,
             audio_stream_handle,
             active_sinks: Vec::new(),
@@ -623,13 +626,35 @@ impl PrismLauncherApp {
             .unwrap_or(false)
     }
 
-    fn launch_selected(&mut self) {
-        if self.instances.is_empty() {
+    fn initiate_launch_countdown(&mut self, index: usize, current_time: f64) {
+        if self.instances.is_empty() || index >= self.instances.len() {
+            return;
+        }
+        self.pending_launch_index = Some(index);
+        self.launch_countdown_start = Some(current_time);
+        self.message = format!(
+            "Launching {} in 3 seconds. Press cancel to abort.",
+            self.instances[index].name
+        );
+    }
+
+    fn cancel_launch(&mut self) {
+        if let Some(index) = self.pending_launch_index {
+            self.message = format!("Launch of {} cancelled.", self.instances[index].name);
+        } else {
+            self.message = "Launch cancelled.".into();
+        }
+        self.pending_launch_index = None;
+        self.launch_countdown_start = None;
+    }
+
+    fn launch_selected(&mut self, index: usize) {
+        if self.instances.is_empty() || index >= self.instances.len() {
             self.message = "Nothing to launch. Refresh to detect Prism Launcher modpacks.".into();
             return;
         }
 
-        let instance = &self.instances[self.selected_index];
+        let instance = &self.instances[index];
         let instance_id = instance
             .instance_path
             .file_name()
@@ -684,6 +709,8 @@ impl PrismLauncherApp {
         self.instances = instances;
         self.instance_textures.clear();
         self.selected_index = self.instances.get(0).is_some().then_some(0).unwrap_or(0);
+        self.pending_launch_index = None;
+        self.launch_countdown_start = None;
         self.message = if self.instances.is_empty() {
             "No Prism Launcher modpacks found. Confirm to refresh.".into()
         } else {
@@ -740,8 +767,23 @@ impl PrismLauncherApp {
                         match button {
                             Button::DPadRight => self.move_selection(1, current_time),
                             Button::DPadLeft => self.move_selection(-1, current_time),
-                            Button::South => self.launch_selected(),
-                            Button::East => std::process::exit(0),
+                            Button::South => {
+                                if self.pending_launch_index.is_some() {
+                                    self.cancel_launch();
+                                } else {
+                                    self.initiate_launch_countdown(
+                                        self.selected_index,
+                                        current_time,
+                                    );
+                                }
+                            }
+                            Button::East => {
+                                if self.pending_launch_index.is_some() {
+                                    self.cancel_launch();
+                                } else {
+                                    std::process::exit(0);
+                                }
+                            }
                             Button::North => self.refresh_instances(),
                             _ => {}
                         }
@@ -973,6 +1015,35 @@ impl App for PrismLauncherApp {
                 });
             });
 
+        if let Some(index) = self.pending_launch_index {
+            if let Some(start_time) = self.launch_countdown_start {
+                let remaining = (3.0 - (current_time - start_time)).max(0.0);
+                let countdown_text = format!(
+                    "Launching {} in {:.1} seconds...",
+                    self.instances
+                        .get(index)
+                        .map(|instance| instance.name.clone())
+                        .unwrap_or_else(|| "selected modpack".into()),
+                    remaining
+                );
+
+                egui::Window::new("Confirm Launch")
+                    .collapsible(false)
+                    .resizable(false)
+                    .title_bar(false)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                    .show(ctx, |ui| {
+                        ui.vertical_centered_justified(|ui| {
+                            ui.label(countdown_text);
+                            ui.add_space(8.0);
+                            if ui.button("Cancel").clicked() {
+                                self.cancel_launch();
+                            }
+                        });
+                    });
+            }
+        }
+
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
             self.input_device = InputDevice::Keyboard;
             self.move_selection(1, current_time);
@@ -983,7 +1054,11 @@ impl App for PrismLauncherApp {
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             self.input_device = InputDevice::Keyboard;
-            self.launch_selected();
+            if self.pending_launch_index.is_some() {
+                self.cancel_launch();
+            } else {
+                self.initiate_launch_countdown(self.selected_index, current_time);
+            }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::R)) {
             self.input_device = InputDevice::Keyboard;
@@ -991,7 +1066,21 @@ impl App for PrismLauncherApp {
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.input_device = InputDevice::Keyboard;
-            std::process::exit(0);
+            if self.pending_launch_index.is_some() {
+                self.cancel_launch();
+            } else {
+                std::process::exit(0);
+            }
+        }
+
+        if let (Some(index), Some(start_time)) =
+            (self.pending_launch_index, self.launch_countdown_start)
+        {
+            if current_time - start_time >= 3.0 {
+                self.pending_launch_index = None;
+                self.launch_countdown_start = None;
+                self.launch_selected(index);
+            }
         }
 
         ctx.request_repaint();
