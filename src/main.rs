@@ -725,23 +725,45 @@ impl App for PrismLauncherApp {
                                 ui.style().visuals.extreme_bg_color
                             };
                             let rounding = egui::Rounding::same(24.0);
-                            ui.painter().rect_filled(rect, rounding, fill_color);
+                            let stroke = if selected {
+                                egui::Stroke::new(3.0_f32, ui.visuals().selection.stroke.color)
+                            } else {
+                                egui::Stroke::new(
+                                    1.0_f32,
+                                    ui.visuals().widgets.noninteractive.bg_stroke.color,
+                                )
+                            };
 
                             if let Some(Some(texture)) = self.instance_textures.get(index) {
-                                ui.painter().image(
-                                    texture.id(),
-                                    rect.shrink(8.0),
-                                    egui::Rect::from_min_max(
-                                        egui::Pos2::new(0.0, 0.0),
-                                        egui::Pos2::new(1.0, 1.0),
-                                    ),
-                                    egui::Color32::WHITE,
-                                );
-                                ui.painter().rect_filled(
+                                let mut shape = egui::epaint::RectShape::new(
                                     rect,
                                     rounding,
-                                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+                                    egui::Color32::WHITE,
+                                    stroke,
                                 );
+                                shape.fill_texture_id = texture.id();
+                                shape.uv = egui::Rect::from_min_max(
+                                    egui::Pos2::new(0.0, 0.0),
+                                    egui::Pos2::new(1.0, 1.0),
+                                );
+                                ui.painter().add(egui::Shape::Rect(shape));
+                            } else {
+                                ui.painter().rect_filled(rect, rounding, fill_color);
+                                ui.painter().rect_stroke(rect, rounding, stroke);
+                            }
+
+                            let overlay_color = if self
+                                .instance_textures
+                                .get(index)
+                                .and_then(|t| t.as_ref())
+                                .is_some()
+                            {
+                                egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            };
+                            if overlay_color != egui::Color32::TRANSPARENT {
+                                ui.painter().rect_filled(rect, rounding, overlay_color);
                             }
 
                             let text_color = if selected {
