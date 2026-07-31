@@ -767,7 +767,7 @@ impl App for PrismLauncherApp {
         egui::CentralPanel::default()
             .frame(panel_frame)
             .show(ctx, |ui| {
-                ui.heading("PrismDeck Controller Launcher");
+                ui.heading("PrismDeck");
                 ui.label("Detected Prism Launcher modpacks from native and Flatpak installations.");
                 ui.label(&self.message);
                 ui.separator();
