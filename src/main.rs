@@ -760,7 +760,7 @@ impl App for PrismLauncherApp {
             stroke: egui::Stroke::new(0.0_f32, egui::Color32::TRANSPARENT),
             inner_margin: 12.0.into(),
             outer_margin: 0.0.into(),
-            rounding: egui::Rounding::same(12.0),
+            rounding: egui::Rounding::same(0.0),
             ..Default::default()
         };
  
