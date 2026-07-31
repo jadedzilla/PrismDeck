@@ -81,6 +81,7 @@ struct PrismLauncherApp {
     message: String,
     controller_style: ControllerStyle,
     gilrs: Option<Gilrs>,
+    window_focused: bool,
 }
 
 impl PrismLauncherApp {
@@ -106,6 +107,7 @@ impl PrismLauncherApp {
             message,
             controller_style,
             gilrs,
+            window_focused: true,
         }
     }
 
@@ -529,6 +531,16 @@ impl PrismLauncherApp {
         };
     }
 
+    fn update_window_focus(&mut self, ctx: &egui::Context) {
+        ctx.input(|input| {
+            for event in input.raw.events.iter() {
+                if let egui::Event::WindowFocused(focused) = event {
+                    self.window_focused = *focused;
+                }
+            }
+        });
+    }
+
     fn handle_gamepad_events(&mut self) {
         if let Some(gilrs) = &mut self.gilrs {
             let mut events = Vec::new();
@@ -575,7 +587,10 @@ impl PrismLauncherApp {
 
 impl App for PrismLauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        self.handle_gamepad_events();
+        self.update_window_focus(ctx);
+        if self.window_focused {
+            self.handle_gamepad_events();
+        }
         self.controller_style = self.controller_style.clone();
 
         egui::CentralPanel::default().show(ctx, |ui| {
