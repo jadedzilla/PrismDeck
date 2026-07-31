@@ -1,5 +1,5 @@
 use eframe::{egui, App, Frame, NativeOptions};
-use gilrs::{Button, Event, EventType, Gilrs};
+use gilrs::{Axis, Button, Event, EventType, Gilrs};
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -87,6 +87,7 @@ struct PrismLauncherApp {
     message: String,
     controller_style: ControllerStyle,
     gilrs: Option<Gilrs>,
+    left_stick_direction: i8,
     window_focused: bool,
 }
 
@@ -115,6 +116,7 @@ impl PrismLauncherApp {
             message,
             controller_style,
             gilrs,
+            left_stick_direction: 0,
             window_focused: true,
         }
     }
@@ -652,12 +654,14 @@ impl PrismLauncherApp {
     }
 
     fn handle_gamepad_events(&mut self) {
+        const STICK_THRESHOLD: f32 = 0.6;
+ 
         if let Some(gilrs) = &mut self.gilrs {
             let mut events = Vec::new();
             while let Some(Event { event, .. }) = gilrs.next_event() {
                 events.push(event);
             }
-
+ 
             for event in events {
                 match event {
                     EventType::ButtonPressed(button, _) => match button {
@@ -681,6 +685,32 @@ impl PrismLauncherApp {
                         Button::North => self.refresh_instances(),
                         _ => {}
                     },
+                    EventType::AxisChanged(axis, value, _) => {
+                        if axis == Axis::LeftStickX {
+                            let direction = if value > STICK_THRESHOLD {
+                                1
+                            } else if value < -STICK_THRESHOLD {
+                                -1
+                            } else {
+                                0
+                            };
+ 
+                            if direction != self.left_stick_direction {
+                                self.left_stick_direction = direction;
+                                if direction > 0 && !self.instances.is_empty() {
+                                    self.selected_index =
+                                        (self.selected_index + 1) % self.instances.len();
+                                }
+                                if direction < 0 && !self.instances.is_empty() {
+                                    self.selected_index = if self.selected_index == 0 {
+                                        self.instances.len() - 1
+                                    } else {
+                                        self.selected_index - 1
+                                    };
+                                }
+                            }
+                        }
+                    }
                     EventType::Connected => {
                         self.controller_style = self
                             .gilrs
@@ -744,7 +774,7 @@ impl App for PrismLauncherApp {
 
             ui.horizontal(|ui| {
                 ui.label("Navigate:");
-                ui.label("D-Pad left/right");
+                ui.label("D-Pad or left stick left/right");
                 ui.separator();
                 ui.label("Select:");
                 ui.label(self.controller_style.confirm_button_label());
