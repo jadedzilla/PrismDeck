@@ -98,6 +98,7 @@ struct PrismLauncherApp {
     input_device: InputDevice,
     gilrs: Option<Gilrs>,
     left_stick_direction: i8,
+    selection_animation_start: Option<f64>,
     audio_stream: Option<OutputStream>,
     audio_stream_handle: Option<OutputStreamHandle>,
     active_sinks: Vec<Sink>,
@@ -116,7 +117,7 @@ impl PrismLauncherApp {
             .filter(|g| g.gamepads().next().is_some())
             .map(|_| InputDevice::Controller)
             .unwrap_or(InputDevice::Keyboard);
- 
+
         let (native_launcher, instances) = Self::discover_instances();
         let selected_index = if instances.is_empty() { 0 } else { 0 };
         let message = if instances.is_empty() {
@@ -129,7 +130,7 @@ impl PrismLauncherApp {
             Ok((stream, handle)) => (Some(stream), Some(handle)),
             Err(_) => (None, None),
         };
- 
+
         Self {
             native_launcher,
             instances,
@@ -140,6 +141,7 @@ impl PrismLauncherApp {
             controller_style,
             gilrs,
             left_stick_direction: 0,
+            selection_animation_start: None,
             audio_stream,
             audio_stream_handle,
             active_sinks: Vec::new(),
@@ -555,7 +557,7 @@ impl PrismLauncherApp {
         if self.instance_textures.len() != self.instances.len() {
             self.instance_textures = vec![None; self.instances.len()];
         }
- 
+
         for (index, instance) in self.instances.iter().enumerate() {
             if self.instance_textures[index].is_none() {
                 self.instance_textures[index] = instance
@@ -564,7 +566,7 @@ impl PrismLauncherApp {
                     .and_then(|path| Self::load_icon_texture(ctx, path));
             }
         }
- 
+
         if self.background_texture.is_none() {
             self.background_texture = Self::load_background_texture(ctx);
         }
@@ -577,7 +579,7 @@ impl PrismLauncherApp {
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
         Some(ctx.load_texture(icon_path.to_string_lossy(), color_image, Default::default()))
     }
- 
+
     fn load_background_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
         let image = image::load_from_memory_with_format(BACKGROUND_IMAGE, image::ImageFormat::Png)
             .ok()?
@@ -588,17 +590,17 @@ impl PrismLauncherApp {
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
         Some(ctx.load_texture("launcher_background", color_image, Default::default()))
     }
- 
+
     fn play_select_sound(&mut self) {
         if self.audio_stream.is_none() {
             return;
         }
- 
+
         let stream_handle = match self.audio_stream_handle.as_ref() {
             Some(handle) => handle,
             None => return,
         };
- 
+
         if let Ok(source) = Decoder::new(Cursor::new(SELECT_SOUND)) {
             if let Ok(sink) = Sink::try_new(stream_handle) {
                 sink.append(source);
@@ -607,7 +609,7 @@ impl PrismLauncherApp {
             }
         }
     }
- 
+
     fn flatpak_available() -> bool {
         if which::which("flatpak").is_err() {
             return false;
@@ -688,8 +690,8 @@ impl PrismLauncherApp {
             "Modpack instances refreshed. Use select to launch and back to quit.".into()
         };
     }
- 
-    fn move_selection(&mut self, delta: i32) {
+
+    fn move_selection(&mut self, delta: i32, current_time: f64) {
         if self.instances.is_empty() {
             return;
         }
@@ -707,10 +709,11 @@ impl PrismLauncherApp {
         };
         if new_index != self.selected_index {
             self.selected_index = new_index;
+            self.selection_animation_start = Some(current_time);
             self.play_select_sound();
         }
     }
- 
+
     fn update_window_focus(&mut self, ctx: &egui::Context) {
         ctx.input(|input| {
             for event in input.raw.events.iter() {
@@ -721,22 +724,22 @@ impl PrismLauncherApp {
         });
     }
 
-    fn handle_gamepad_events(&mut self) {
+    fn handle_gamepad_events(&mut self, current_time: f64) {
         const STICK_THRESHOLD: f32 = 0.6;
- 
+
         if let Some(gilrs) = &mut self.gilrs {
             let mut events = Vec::new();
             while let Some(Event { event, .. }) = gilrs.next_event() {
                 events.push(event);
             }
- 
+
             for event in events {
                 match event {
                     EventType::ButtonPressed(button, _) => {
                         self.input_device = InputDevice::Controller;
                         match button {
-                            Button::DPadRight => self.move_selection(1),
-                            Button::DPadLeft => self.move_selection(-1),
+                            Button::DPadRight => self.move_selection(1, current_time),
+                            Button::DPadLeft => self.move_selection(-1, current_time),
                             Button::South => self.launch_selected(),
                             Button::East => std::process::exit(0),
                             Button::North => self.refresh_instances(),
@@ -753,13 +756,13 @@ impl PrismLauncherApp {
                             } else {
                                 0
                             };
- 
+
                             if direction != self.left_stick_direction {
                                 self.left_stick_direction = direction;
                                 if direction > 0 {
-                                    self.move_selection(1);
+                                    self.move_selection(1, current_time);
                                 } else if direction < 0 {
-                                    self.move_selection(-1);
+                                    self.move_selection(-1, current_time);
                                 }
                             }
                         }
@@ -782,12 +785,13 @@ impl PrismLauncherApp {
 impl App for PrismLauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         self.update_window_focus(ctx);
+        let current_time = ctx.input(|i| i.time);
         if self.window_focused {
-            self.handle_gamepad_events();
+            self.handle_gamepad_events(current_time);
         }
         self.ensure_instance_textures(ctx);
         self.controller_style = self.controller_style.clone();
- 
+
         if let Some(background) = &self.background_texture {
             let full_rect = ctx.input(|i| i.screen_rect());
             let mut shape = egui::epaint::RectShape::new(
@@ -797,18 +801,17 @@ impl App for PrismLauncherApp {
                 egui::Stroke::NONE,
             );
             shape.fill_texture_id = background.id();
-            shape.uv = egui::Rect::from_min_max(
-                egui::Pos2::new(0.0, 0.0),
-                egui::Pos2::new(1.0, 1.0),
-            );
-            ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::Rect(shape));
+            shape.uv =
+                egui::Rect::from_min_max(egui::Pos2::new(0.0, 0.0), egui::Pos2::new(1.0, 1.0));
+            ctx.layer_painter(egui::LayerId::background())
+                .add(egui::Shape::Rect(shape));
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 full_rect,
                 egui::Rounding::same(0.0),
                 egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
             );
         }
- 
+
         let panel_frame = egui::Frame {
             fill: egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
             stroke: egui::Stroke::new(0.0_f32, egui::Color32::TRANSPARENT),
@@ -817,7 +820,7 @@ impl App for PrismLauncherApp {
             rounding: egui::Rounding::same(0.0),
             ..Default::default()
         };
- 
+
         egui::CentralPanel::default()
             .frame(panel_frame)
             .show(ctx, |ui| {
@@ -826,129 +829,157 @@ impl App for PrismLauncherApp {
                 ui.label(&self.message);
                 ui.separator();
 
-            ui.horizontal(|ui| {
-                ui.label("Navigate:");
-                ui.label(match self.input_device {
-                    InputDevice::Controller => "D-Pad or left stick left/right",
-                    InputDevice::Keyboard => "Left/right arrows",
-                });
-                ui.separator();
-                ui.label("Select:");
-                ui.label(match self.input_device {
-                    InputDevice::Controller => self.controller_style.confirm_button_label(),
-                    InputDevice::Keyboard => "Enter",
-                });
-                ui.separator();
-                ui.label("Back:");
-                ui.label(match self.input_device {
-                    InputDevice::Controller => self.controller_style.cancel_button_label(),
-                    InputDevice::Keyboard => "Esc",
-                });
-                ui.separator();
-                ui.label("Refresh:");
-                ui.label(match self.input_device {
-                    InputDevice::Controller => self.controller_style.refresh_button_label(),
-                    InputDevice::Keyboard => "R",
-                });
-            });
-            ui.separator();
-
-            if self.instances.is_empty() {
-                ui.label("No Prism Launcher modpacks detected.");
-            } else {
-                ui.label("Select a modpack from the shelf below.");
-                ui.add_space(10.0);
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        for (index, instance) in self.instances.iter().enumerate() {
-                            let selected = index == self.selected_index;
-                            let card_size = egui::vec2(260.0, 260.0);
-                            ui.add_space(8.0);
-                            ui.vertical(|ui| {
-                                let label_height = 38.0;
-                                let (label_rect, _label_response) = ui.allocate_exact_size(
-                                    egui::vec2(card_size.x, label_height),
-                                    egui::Sense::hover(),
-                                );
-                                if selected {
-                                    let text_pos = egui::pos2(label_rect.left(), label_rect.center().y);
-                                    ui.painter().text(
-                                        text_pos,
-                                        egui::Align2::LEFT_CENTER,
-                                        instance.name.clone(),
-                                        egui::FontId::proportional(18.0),
-                                        ui.visuals().strong_text_color(),
-                                    );
-                                }
- 
-                                let (rect, _response) =
-                                    ui.allocate_exact_size(card_size, egui::Sense::hover());
-                                let fill_color = if selected {
-                                    ui.style().visuals.selection.bg_fill
-                                } else {
-                                    ui.style().visuals.extreme_bg_color
-                                };
-                                let rounding = egui::Rounding::same(24.0);
-                                let stroke = if selected {
-                                    egui::Stroke::new(5.0_f32, ui.visuals().selection.stroke.color)
-                                } else {
-                                    egui::Stroke::new(
-                                        1.0_f32,
-                                        ui.visuals().widgets.noninteractive.bg_stroke.color,
-                                    )
-                                };
-
-                                if let Some(Some(texture)) = self.instance_textures.get(index) {
-                                    let mut shape = egui::epaint::RectShape::new(
-                                        rect,
-                                        rounding,
-                                        egui::Color32::WHITE,
-                                        stroke,
-                                    );
-                                    shape.fill_texture_id = texture.id();
-                                    shape.uv = egui::Rect::from_min_max(
-                                        egui::Pos2::new(0.0, 0.0),
-                                        egui::Pos2::new(1.0, 1.0),
-                                    );
-                                    ui.painter().add(egui::Shape::Rect(shape));
-                                } else {
-                                    ui.painter().rect_filled(rect, rounding, fill_color);
-                                    ui.painter().rect_stroke(rect, rounding, stroke);
-                                }
-
-                                let overlay_color = if self
-                                    .instance_textures
-                                    .get(index)
-                                    .and_then(|t| t.as_ref())
-                                    .is_some()
-                                {
-                                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
-                                } else {
-                                    egui::Color32::TRANSPARENT
-                                };
-                                if overlay_color != egui::Color32::TRANSPARENT {
-                                    ui.painter().rect_filled(rect, rounding, overlay_color);
-                                }
-                            });
-                        }
-                        ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label("Navigate:");
+                    ui.label(match self.input_device {
+                        InputDevice::Controller => "D-Pad or left stick left/right",
+                        InputDevice::Keyboard => "Left/right arrows",
+                    });
+                    ui.separator();
+                    ui.label("Select:");
+                    ui.label(match self.input_device {
+                        InputDevice::Controller => self.controller_style.confirm_button_label(),
+                        InputDevice::Keyboard => "Enter",
+                    });
+                    ui.separator();
+                    ui.label("Back:");
+                    ui.label(match self.input_device {
+                        InputDevice::Controller => self.controller_style.cancel_button_label(),
+                        InputDevice::Keyboard => "Esc",
+                    });
+                    ui.separator();
+                    ui.label("Refresh:");
+                    ui.label(match self.input_device {
+                        InputDevice::Controller => self.controller_style.refresh_button_label(),
+                        InputDevice::Keyboard => "R",
                     });
                 });
-            }
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.separator();
-                ui.label("Made with ♥ by jadedzilla. Press the back button or Esc to exit.");
+
+                if self.instances.is_empty() {
+                    ui.label("No Prism Launcher modpacks detected.");
+                } else {
+                    ui.label("Select a modpack from the shelf below.");
+                    ui.add_space(10.0);
+                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for (index, instance) in self.instances.iter().enumerate() {
+                                let selected = index == self.selected_index;
+                                let card_size = egui::vec2(260.0, 260.0);
+                                ui.add_space(8.0);
+                                ui.vertical(|ui| {
+                                    let label_height = 38.0;
+                                    let (label_rect, _label_response) = ui.allocate_exact_size(
+                                        egui::vec2(card_size.x, label_height),
+                                        egui::Sense::hover(),
+                                    );
+                                    if selected {
+                                        let text_pos =
+                                            egui::pos2(label_rect.left(), label_rect.center().y);
+                                        ui.painter().text(
+                                            text_pos,
+                                            egui::Align2::LEFT_CENTER,
+                                            instance.name.clone(),
+                                            egui::FontId::proportional(18.0),
+                                            ui.visuals().strong_text_color(),
+                                        );
+                                    }
+
+                                    let (rect, _response) =
+                                        ui.allocate_exact_size(card_size, egui::Sense::hover());
+                                    let fill_color = if selected {
+                                        ui.style().visuals.selection.bg_fill
+                                    } else {
+                                        ui.style().visuals.extreme_bg_color
+                                    };
+                                    let rounding = egui::Rounding::same(24.0);
+                                    let (stroke_width, stroke_color) = if selected {
+                                        let selection_color = ui.visuals().selection.stroke.color;
+                                        let stroke_color =
+                                            if selection_color == egui::Color32::TRANSPARENT {
+                                                egui::Color32::WHITE
+                                            } else {
+                                                egui::Color32::from_rgba_unmultiplied(
+                                                    selection_color.r(),
+                                                    selection_color.g(),
+                                                    selection_color.b(),
+                                                    255,
+                                                )
+                                            };
+                                        let animated_width = if let Some(start_time) =
+                                            self.selection_animation_start
+                                        {
+                                            let progress =
+                                                ((current_time - start_time) / 0.3).clamp(0.0, 1.0);
+                                            let eased = 1.0 - (1.0 - progress).powf(3.0);
+                                            let width = 5.0 + (12.0 - 5.0) * eased;
+                                            if progress >= 1.0 {
+                                                self.selection_animation_start = None;
+                                            }
+                                            width as f32
+                                        } else {
+                                            12.0_f32
+                                        };
+                                        (animated_width, stroke_color)
+                                    } else {
+                                        (
+                                            1.0_f32,
+                                            ui.visuals().widgets.noninteractive.bg_stroke.color,
+                                        )
+                                    };
+                                    let stroke = egui::Stroke::new(stroke_width, stroke_color);
+
+                                    if let Some(Some(texture)) = self.instance_textures.get(index) {
+                                        let mut shape = egui::epaint::RectShape::new(
+                                            rect,
+                                            rounding,
+                                            egui::Color32::WHITE,
+                                            stroke,
+                                        );
+                                        shape.fill_texture_id = texture.id();
+                                        shape.uv = egui::Rect::from_min_max(
+                                            egui::Pos2::new(0.0, 0.0),
+                                            egui::Pos2::new(1.0, 1.0),
+                                        );
+                                        ui.painter().add(egui::Shape::Rect(shape));
+                                    } else {
+                                        ui.painter().rect_filled(rect, rounding, fill_color);
+                                        ui.painter().rect_stroke(rect, rounding, stroke);
+                                    }
+
+                                    let overlay_color = if self
+                                        .instance_textures
+                                        .get(index)
+                                        .and_then(|t| t.as_ref())
+                                        .is_some()
+                                    {
+                                        egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    };
+                                    if overlay_color != egui::Color32::TRANSPARENT {
+                                        ui.painter().rect_filled(rect, rounding, overlay_color);
+                                    }
+                                });
+                            }
+                            ui.add_space(8.0);
+                        });
+                    });
+                }
+
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.separator();
+                    ui.label("Made with ♥ by jadedzilla. Press the back button or Esc to exit.");
+                });
             });
-        });
 
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
             self.input_device = InputDevice::Keyboard;
-            self.move_selection(1);
+            self.move_selection(1, current_time);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
             self.input_device = InputDevice::Keyboard;
-            self.move_selection(-1);
+            self.move_selection(-1, current_time);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             self.input_device = InputDevice::Keyboard;
