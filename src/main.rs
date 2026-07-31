@@ -850,7 +850,7 @@ impl App for PrismLauncherApp {
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 full_rect,
                 egui::Rounding::same(0.0),
-                egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
             );
         }
 
