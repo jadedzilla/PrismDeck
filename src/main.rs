@@ -617,27 +617,45 @@ impl App for PrismLauncherApp {
             if self.instances.is_empty() {
                 ui.label("No Prism Launcher modpacks detected.");
             } else {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (index, instance) in self.instances.iter().enumerate() {
-                        let selected = index == self.selected_index;
-                        let frame = egui::Frame::canvas(ui.style()).fill(if selected {
-                            ui.style().visuals.selection.bg_fill
-                        } else {
-                            ui.style().visuals.extreme_bg_color
-                        });
-                        frame.show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(if selected { "▶" } else { "" });
-                                ui.vertical(|ui| {
-                                    ui.label(&instance.name);
+                ui.label("Select a modpack from the shelf below.");
+                ui.add_space(10.0);
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (index, instance) in self.instances.iter().enumerate() {
+                            let selected = index == self.selected_index;
+                            let card_fill = if selected {
+                                ui.style().visuals.selection.bg_fill
+                            } else {
+                                ui.style().visuals.extreme_bg_color
+                            };
+                            let card_frame = egui::Frame::none()
+                                .fill(card_fill)
+                                .rounding(egui::Rounding::same(16.0));
+                            ui.add_space(8.0);
+                            card_frame.show(ui, |ui| {
+                                ui.set_min_size(egui::vec2(280.0, 180.0));
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(12.0);
+                                    ui.heading(&instance.name);
+                                    ui.add_space(6.0);
                                     ui.label(match instance.kind {
                                         PrismInstanceKind::Native => "Native modpack",
                                         PrismInstanceKind::Flatpak => "Flatpak modpack",
                                     });
+                                    ui.add_space(12.0);
+                                    if selected {
+                                        ui.colored_label(
+                                            ui.visuals().strong_text_color(),
+                                            "Selected",
+                                        );
+                                    } else {
+                                        ui.label("Use D-pad to move and confirm to launch.");
+                                    }
                                 });
                             });
-                        });
-                    }
+                        }
+                        ui.add_space(8.0);
+                    });
                 });
             }
 
