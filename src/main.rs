@@ -148,6 +148,16 @@ impl PrismLauncherApp {
             }
         }
 
+        if instances.is_empty() {
+            for modpack in Self::discover_modpacks_from_cfg() {
+                instances.push(PrismInstance {
+                    name: modpack.name,
+                    instance_path: modpack.path,
+                    kind: PrismInstanceKind::Native,
+                });
+            }
+        }
+
         (native_launcher, instances)
     }
 
@@ -189,7 +199,8 @@ impl PrismLauncherApp {
         .map(|path| PathBuf::from(shellexpand::tilde(path).into_owned()))
         .collect::<Vec<_>>();
 
-        paths.extend(Self::discover_additional_native_roots());
+        paths.extend(Self::discover_prism_roots("~/.local/share", 3, false));
+        paths.extend(Self::discover_prism_roots("~/.config", 3, false));
         paths
     }
 
@@ -205,64 +216,59 @@ impl PrismLauncherApp {
         .map(|path| PathBuf::from(shellexpand::tilde(path).into_owned()))
         .collect::<Vec<_>>();
 
-        paths.extend(Self::discover_additional_flatpak_roots());
+        if let Some(home) = env::var_os("HOME") {
+            let app_root = PathBuf::from(&home).join(".var/app");
+            paths.extend(Self::discover_prism_roots(app_root.to_string_lossy().as_ref(), 4, true));
+        }
+
         paths
     }
 
-    fn discover_additional_native_roots() -> Vec<PathBuf> {
+    fn discover_prism_roots(root: &str, max_depth: usize, include_flatpak_base: bool) -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        if let Some(home) = env::var_os("HOME") {
-            let base_dirs = [".local/share", ".config"];
-            for base in base_dirs {
-                let root = PathBuf::from(&home).join(base);
-                if !root.is_dir() {
-                    continue;
+        let root_path = PathBuf::from(shellexpand::tilde(root).into_owned());
+        if !root_path.is_dir() {
+            return paths;
+        }
+
+        let mut stack = vec![(root_path.clone(), 0)];
+        while let Some((current, depth)) = stack.pop() {
+            if depth > max_depth {
+                continue;
+            }
+
+            if let Some(name) = current.file_name().and_then(|n| n.to_str()) {
+                let name_lower = name.to_lowercase();
+                if name_lower.contains("prismlauncher") || name_lower.contains("prism-launcher") || name_lower.contains("prismlauncher") {
+                    let candidate = current.join("instances");
+                    if candidate.is_dir() {
+                        paths.push(candidate);
+                    }
+                    if include_flatpak_base {
+                        let candidate = current.join(".local/share/prismlauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join(".config/prismlauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                    }
                 }
-                if let Ok(entries) = fs::read_dir(&root) {
+            }
+
+            if depth < max_depth {
+                if let Ok(entries) = fs::read_dir(&current) {
                     for entry in entries.flatten() {
-                        let child = entry.path();
-                        if child.is_dir() {
-                            let candidate = child.join("instances");
-                            if candidate.is_dir() {
-                                paths.push(candidate);
-                            }
+                        let path = entry.path();
+                        if path.is_dir() {
+                            stack.push((path, depth + 1));
                         }
                     }
                 }
             }
         }
-        paths
-    }
 
-    fn discover_additional_flatpak_roots() -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        if let Some(home) = env::var_os("HOME") {
-            let base = PathBuf::from(&home).join(".var/app");
-            if base.is_dir() {
-                if let Ok(entries) = fs::read_dir(&base) {
-                    for entry in entries.flatten() {
-                        let child = entry.path();
-                        if !child.is_dir() {
-                            continue;
-                        }
-                        let local_share = child.join(".local/share");
-                        let config = child.join(".config");
-                        for candidate in [
-                            local_share.join("prismlauncher/instances"),
-                            local_share.join("PrismLauncher/instances"),
-                            local_share.join("prism-launcher/instances"),
-                            config.join("prismlauncher/instances"),
-                            config.join("prism-launcher/instances"),
-                            config.join("PrismLauncher/instances"),
-                        ] {
-                            if candidate.is_dir() {
-                                paths.push(candidate);
-                            }
-                        }
-                    }
-                }
-            }
-        }
         paths
     }
 
@@ -287,6 +293,63 @@ impl PrismLauncherApp {
         }
 
         instances
+    }
+
+    fn discover_modpacks_from_cfg() -> Vec<PrismModpack> {
+        let mut instances = Vec::new();
+        let mut candidate_dirs = Vec::new();
+
+        if let Some(home) = env::var_os("HOME") {
+            let roots = [
+                PathBuf::from(&home).join(".local/share"),
+                PathBuf::from(&home).join(".config"),
+                PathBuf::from(&home).join(".var/app"),
+            ];
+
+            for root in roots {
+                candidate_dirs.extend(Self::discover_directories_with_instance_cfg(&root, 5));
+            }
+        }
+
+        candidate_dirs.sort();
+        candidate_dirs.dedup();
+
+        for instance_dir in candidate_dirs {
+            let name = Self::read_modpack_name(&instance_dir)
+                .unwrap_or_else(|| instance_dir.file_name().unwrap_or_default().to_string_lossy().into_owned());
+            instances.push(PrismModpack { name, path: instance_dir });
+        }
+
+        instances
+    }
+
+    fn discover_directories_with_instance_cfg(root: &PathBuf, max_depth: usize) -> Vec<PathBuf> {
+        let mut matches = Vec::new();
+        if !root.is_dir() {
+            return matches;
+        }
+
+        let mut stack = vec![(root.clone(), 0)];
+        while let Some((current, depth)) = stack.pop() {
+            if depth > max_depth {
+                continue;
+            }
+
+            if let Ok(entries) = fs::read_dir(&current) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push((path, depth + 1));
+                    } else if path.file_name().and_then(|n| n.to_str()) == Some("instance.cfg") {
+                        if let Some(parent) = path.parent() {
+                            matches.push(parent.to_path_buf());
+                        }
+                    }
+                }
+            }
+        }
+
+        matches
     }
 
     fn read_modpack_name(instance_dir: &PathBuf) -> Option<String> {
