@@ -66,17 +66,20 @@ struct PrismInstance {
     name: String,
     instance_path: PathBuf,
     kind: PrismInstanceKind,
+    icon_path: Option<PathBuf>,
 }
 
 #[derive(Clone)]
 struct PrismModpack {
     name: String,
     path: PathBuf,
+    icon_path: Option<PathBuf>,
 }
 
 struct PrismLauncherApp {
     native_launcher: Option<PathBuf>,
     instances: Vec<PrismInstance>,
+    instance_textures: Vec<Option<egui::TextureHandle>>,
     selected_index: usize,
     message: String,
     controller_style: ControllerStyle,
@@ -103,6 +106,7 @@ impl PrismLauncherApp {
         Self {
             native_launcher,
             instances,
+            instance_textures: Vec::new(),
             selected_index,
             message,
             controller_style,
@@ -138,6 +142,7 @@ impl PrismLauncherApp {
                 name: modpack.name,
                 instance_path: modpack.path,
                 kind: PrismInstanceKind::Native,
+                icon_path: modpack.icon_path,
             });
         }
 
@@ -147,6 +152,7 @@ impl PrismLauncherApp {
                     name: modpack.name,
                     instance_path: modpack.path,
                     kind: PrismInstanceKind::Flatpak,
+                    icon_path: modpack.icon_path,
                 });
             }
         }
@@ -157,6 +163,7 @@ impl PrismLauncherApp {
                     name: modpack.name,
                     instance_path: modpack.path,
                     kind: PrismInstanceKind::Native,
+                    icon_path: modpack.icon_path,
                 });
             }
         }
@@ -356,9 +363,11 @@ impl PrismLauncherApp {
                             .to_string_lossy()
                             .into_owned()
                     });
+                    let icon_path = Self::read_modpack_icon_path(&entry_path);
                     instances.push(PrismModpack {
                         name,
                         path: entry_path,
+                        icon_path,
                     });
                 }
             }
@@ -393,9 +402,11 @@ impl PrismLauncherApp {
                     .to_string_lossy()
                     .into_owned()
             });
+            let icon_path = Self::read_modpack_icon_path(&instance_dir);
             instances.push(PrismModpack {
                 name,
                 path: instance_dir,
+                icon_path,
             });
         }
 
@@ -449,6 +460,81 @@ impl PrismLauncherApp {
             }
         }
         None
+    }
+
+    fn read_modpack_icon_path(instance_dir: &PathBuf) -> Option<PathBuf> {
+        let icon_candidates = [
+            "icon.png",
+            "icon.jpg",
+            "icon.jpeg",
+            "icon.bmp",
+            "logo.png",
+            "logo.jpg",
+            "instance.png",
+            "instance_icon.png",
+        ];
+
+        for candidate in icon_candidates {
+            let candidate_path = instance_dir.join(candidate);
+            if candidate_path.is_file() {
+                return Some(candidate_path);
+            }
+        }
+
+        let cfg_paths = [
+            instance_dir.join("instance.cfg"),
+            instance_dir.join(".minecraft/instance.cfg"),
+        ];
+        for path in cfg_paths {
+            if let Ok(contents) = fs::read_to_string(&path) {
+                for line in contents.lines() {
+                    if let Some(value) = line.strip_prefix("icon=") {
+                        let icon_path = value.trim();
+                        if !icon_path.is_empty() {
+                            let icon_path = PathBuf::from(icon_path);
+                            let icon_path = if icon_path.is_absolute() {
+                                icon_path
+                            } else {
+                                instance_dir.join(icon_path)
+                            };
+                            if icon_path.is_file() {
+                                return Some(icon_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let minecraft_icon = instance_dir.join(".minecraft/icon.png");
+        if minecraft_icon.is_file() {
+            return Some(minecraft_icon);
+        }
+
+        None
+    }
+
+    fn ensure_instance_textures(&mut self, ctx: &egui::Context) {
+        if self.instance_textures.len() != self.instances.len() {
+            self.instance_textures = vec![None; self.instances.len()];
+        }
+
+        for (index, instance) in self.instances.iter().enumerate() {
+            if self.instance_textures[index].is_none() {
+                self.instance_textures[index] = instance
+                    .icon_path
+                    .as_ref()
+                    .and_then(|path| Self::load_icon_texture(ctx, path));
+            }
+        }
+    }
+
+    fn load_icon_texture(ctx: &egui::Context, icon_path: &PathBuf) -> Option<egui::TextureHandle> {
+        let image = image::open(icon_path).ok()?.to_rgba8();
+        let size = [image.width() as usize, image.height() as usize];
+        let pixels = image.into_raw();
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+        Some(ctx.load_texture(icon_path.to_string_lossy(), color_image, Default::default()))
     }
 
     fn flatpak_available() -> bool {
@@ -523,6 +609,7 @@ impl PrismLauncherApp {
         let (_native_launcher, instances) = Self::discover_instances();
         self.native_launcher = _native_launcher;
         self.instances = instances;
+        self.instance_textures.clear();
         self.selected_index = self.instances.get(0).is_some().then_some(0).unwrap_or(0);
         self.message = if self.instances.is_empty() {
             "No Prism Launcher modpacks found. Confirm to refresh.".into()
@@ -591,6 +678,7 @@ impl App for PrismLauncherApp {
         if self.window_focused {
             self.handle_gamepad_events();
         }
+        self.ensure_instance_textures(ctx);
         self.controller_style = self.controller_style.clone();
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -623,36 +711,71 @@ impl App for PrismLauncherApp {
                     ui.horizontal(|ui| {
                         for (index, instance) in self.instances.iter().enumerate() {
                             let selected = index == self.selected_index;
-                            let card_fill = if selected {
+                            let card_size = egui::vec2(260.0, 260.0);
+                            ui.add_space(8.0);
+                            let (rect, _response) =
+                                ui.allocate_exact_size(card_size, egui::Sense::hover());
+                            let fill_color = if selected {
                                 ui.style().visuals.selection.bg_fill
                             } else {
                                 ui.style().visuals.extreme_bg_color
                             };
-                            let card_frame = egui::Frame::none()
-                                .fill(card_fill)
-                                .rounding(egui::Rounding::same(16.0));
-                            ui.add_space(8.0);
-                            card_frame.show(ui, |ui| {
-                                ui.set_min_size(egui::vec2(280.0, 180.0));
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(12.0);
-                                    ui.heading(&instance.name);
-                                    ui.add_space(6.0);
-                                    ui.label(match instance.kind {
-                                        PrismInstanceKind::Native => "Native modpack",
-                                        PrismInstanceKind::Flatpak => "Flatpak modpack",
-                                    });
-                                    ui.add_space(12.0);
-                                    if selected {
-                                        ui.colored_label(
-                                            ui.visuals().strong_text_color(),
-                                            "Selected",
-                                        );
-                                    } else {
-                                        ui.label("Use D-pad to move and confirm to launch.");
-                                    }
-                                });
-                            });
+                            let rounding = egui::Rounding::same(24.0);
+                            ui.painter().rect_filled(rect, rounding, fill_color);
+
+                            if let Some(Some(texture)) = self.instance_textures.get(index) {
+                                ui.painter().image(
+                                    texture.id(),
+                                    rect.shrink(8.0),
+                                    egui::Rect::from_min_max(
+                                        egui::Pos2::new(0.0, 0.0),
+                                        egui::Pos2::new(1.0, 1.0),
+                                    ),
+                                    egui::Color32::WHITE,
+                                );
+                                ui.painter().rect_filled(
+                                    rect,
+                                    rounding,
+                                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+                                );
+                            }
+
+                            let text_color = if selected {
+                                ui.visuals().strong_text_color()
+                            } else {
+                                ui.visuals().text_color()
+                            };
+                            ui.painter().text(
+                                rect.center_top() + egui::vec2(0.0, 22.0),
+                                egui::Align2::CENTER_TOP,
+                                &instance.name,
+                                egui::TextStyle::Heading.resolve(ui.style()),
+                                text_color,
+                            );
+
+                            ui.painter().text(
+                                rect.center() + egui::vec2(0.0, 10.0),
+                                egui::Align2::CENTER_CENTER,
+                                match instance.kind {
+                                    PrismInstanceKind::Native => "Native",
+                                    PrismInstanceKind::Flatpak => "Flatpak",
+                                },
+                                egui::TextStyle::Body.resolve(ui.style()),
+                                text_color,
+                            );
+
+                            let hint_text = if selected {
+                                "Selected"
+                            } else {
+                                "Use D-pad to move and confirm to launch."
+                            };
+                            ui.painter().text(
+                                rect.center_bottom() + egui::vec2(0.0, -22.0),
+                                egui::Align2::CENTER_BOTTOM,
+                                hint_text,
+                                egui::TextStyle::Body.resolve(ui.style()),
+                                text_color,
+                            );
                         }
                         ui.add_space(8.0);
                     });
