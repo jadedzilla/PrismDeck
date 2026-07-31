@@ -773,24 +773,6 @@ impl App for PrismLauncherApp {
                                 if overlay_color != egui::Color32::TRANSPARENT {
                                     ui.painter().rect_filled(rect, rounding, overlay_color);
                                 }
-
-                                let text_color = if selected {
-                                    ui.visuals().strong_text_color()
-                                } else {
-                                    ui.visuals().text_color()
-                                };
-
-                                ui.painter().text(
-                                    rect.center() + egui::vec2(0.0, -10.0),
-                                    egui::Align2::CENTER_CENTER,
-                                    match instance.kind {
-                                        PrismInstanceKind::Native => "Native",
-                                        PrismInstanceKind::Flatpak => "Flatpak",
-                                    },
-                                    egui::TextStyle::Body.resolve(ui.style()),
-                                    text_color,
-                                );
-
                             });
                         }
                         ui.add_space(8.0);
