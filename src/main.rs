@@ -2,7 +2,7 @@ use eframe::{egui, App, Frame, NativeOptions};
 use gilrs::{Button, Event, EventType, Gilrs};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 fn main() {
@@ -420,13 +420,27 @@ impl PrismLauncherApp {
         }
 
         let instance = &self.instances[self.selected_index];
+        let instance_id = instance
+            .instance_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let instance_root = instance
+            .instance_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let launcher_dir = instance_root.parent().unwrap_or_else(|| instance_root.as_path());
+
         let result = match instance.kind {
             PrismInstanceKind::Flatpak => Command::new("flatpak")
                 .args([
                     "run",
                     "org.prismlauncher.PrismLauncher",
-                    "--instance",
-                    &instance.instance_path.to_string_lossy(),
+                    "--launch",
+                    instance_id,
+                    "--dir",
+                    &launcher_dir.to_string_lossy(),
                 ])
                 .spawn(),
             PrismInstanceKind::Native => {
@@ -436,7 +450,12 @@ impl PrismLauncherApp {
                     .map(|path| path.to_path_buf())
                     .unwrap_or_else(|| PathBuf::from("prism-launcher"));
                 Command::new(launcher)
-                    .args(["--instance", &instance.instance_path.to_string_lossy()])
+                    .args([
+                        "--launch",
+                        instance_id,
+                        "--dir",
+                        &launcher_dir.to_string_lossy(),
+                    ])
                     .spawn()
             }
         };
