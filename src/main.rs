@@ -775,7 +775,7 @@ impl App for PrismLauncherApp {
                                     egui::Sense::hover(),
                                 );
                                 if selected {
-                                    let text_pos = egui::pos2(label_rect.left() + 12.0, label_rect.center().y);
+                                    let text_pos = egui::pos2(label_rect.left(), label_rect.center().y);
                                     ui.painter().text(
                                         text_pos,
                                         egui::Align2::LEFT_CENTER,
