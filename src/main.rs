@@ -725,11 +725,22 @@ impl App for PrismLauncherApp {
             );
         }
  
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("PrismDeck Controller Launcher");
-            ui.label("Detected Prism Launcher modpacks from native and Flatpak installations.");
-            ui.label(&self.message);
-            ui.separator();
+        let panel_frame = egui::Frame {
+            fill: egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+            stroke: egui::Stroke::new(0.0_f32, egui::Color32::TRANSPARENT),
+            inner_margin: 12.0.into(),
+            outer_margin: 0.0.into(),
+            rounding: egui::Rounding::same(12.0),
+            ..Default::default()
+        };
+ 
+        egui::CentralPanel::default()
+            .frame(panel_frame)
+            .show(ctx, |ui| {
+                ui.heading("PrismDeck Controller Launcher");
+                ui.label("Detected Prism Launcher modpacks from native and Flatpak installations.");
+                ui.label(&self.message);
+                ui.separator();
 
             ui.horizontal(|ui| {
                 ui.label("Navigate:");
