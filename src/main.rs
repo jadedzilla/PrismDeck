@@ -211,6 +211,9 @@ impl PrismLauncherApp {
             "~/.var/app/org.prismlauncher.PrismLauncher/.local/share/prism-launcher/instances",
             "~/.var/app/org.prismlauncher.PrismLauncher/.config/prismlauncher/instances",
             "~/.var/app/org.prismlauncher.PrismLauncher/.config/prism-launcher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/data/prismlauncher/instances",
+            "~/.var/app/org.prismlauncher.PrismLauncher/data/prism-launcher/instances",
         ]
         .into_iter()
         .map(|path| PathBuf::from(shellexpand::tilde(path).into_owned()))
@@ -249,7 +252,35 @@ impl PrismLauncherApp {
                         if candidate.is_dir() {
                             paths.push(candidate);
                         }
+                        let candidate = current.join(".local/share/PrismLauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join(".local/share/prism-launcher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
                         let candidate = current.join(".config/prismlauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join(".config/prism-launcher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join(".config/PrismLauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join("data/PrismLauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join("data/prismlauncher/instances");
+                        if candidate.is_dir() {
+                            paths.push(candidate);
+                        }
+                        let candidate = current.join("data/prism-launcher/instances");
                         if candidate.is_dir() {
                             paths.push(candidate);
                         }
