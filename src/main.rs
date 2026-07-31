@@ -724,9 +724,10 @@ impl App for PrismLauncherApp {
                                     egui::Sense::hover(),
                                 );
                                 if selected {
+                                    let text_pos = egui::pos2(label_rect.left() + 12.0, label_rect.center().y);
                                     ui.painter().text(
-                                        label_rect.center(),
-                                        egui::Align2::CENTER_CENTER,
+                                        text_pos,
+                                        egui::Align2::LEFT_CENTER,
                                         instance.name.clone(),
                                         egui::FontId::proportional(18.0),
                                         ui.visuals().strong_text_color(),
