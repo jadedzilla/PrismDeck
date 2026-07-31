@@ -718,13 +718,23 @@ impl App for PrismLauncherApp {
                             let card_size = egui::vec2(260.0, 260.0);
                             ui.add_space(8.0);
                             ui.vertical(|ui| {
+                                let label_height = 38.0;
+                                let label_rect = ui.allocate_exact_size(
+                                    egui::vec2(card_size.x, label_height),
+                                    egui::Sense::hover(),
+                                );
                                 if selected {
-                                    ui.label(
-                                        egui::RichText::new(&instance.name).strong().size(18.0),
+                                    ui.painter().text(
+                                        label_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        egui::RichText::new(&instance.name)
+                                            .strong()
+                                            .size(18.0),
+                                        egui::TextStyle::Body.resolve(ui.style()),
+                                        ui.visuals().strong_text_color(),
                                     );
-                                } else {
-                                    ui.add_space(24.0);
                                 }
+ 
                                 let (rect, _response) =
                                     ui.allocate_exact_size(card_size, egui::Sense::hover());
                                 let fill_color = if selected {
