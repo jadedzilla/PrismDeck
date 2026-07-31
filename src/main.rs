@@ -1,5 +1,6 @@
 use eframe::{egui, App, Frame, NativeOptions};
 use gilrs::{Button, Event, EventType, Gilrs};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -201,7 +202,7 @@ impl PrismLauncherApp {
 
         paths.extend(Self::discover_prism_roots("~/.local/share", 3, false));
         paths.extend(Self::discover_prism_roots("~/.config", 3, false));
-        paths
+        Self::unique_directories(paths)
     }
 
     fn flatpak_instance_paths() -> Vec<PathBuf> {
@@ -221,13 +222,21 @@ impl PrismLauncherApp {
 
         if let Some(home) = env::var_os("HOME") {
             let app_root = PathBuf::from(&home).join(".var/app");
-            paths.extend(Self::discover_prism_roots(app_root.to_string_lossy().as_ref(), 4, true));
+            paths.extend(Self::discover_prism_roots(
+                app_root.to_string_lossy().as_ref(),
+                4,
+                true,
+            ));
         }
 
-        paths
+        Self::unique_directories(paths)
     }
 
-    fn discover_prism_roots(root: &str, max_depth: usize, include_flatpak_base: bool) -> Vec<PathBuf> {
+    fn discover_prism_roots(
+        root: &str,
+        max_depth: usize,
+        include_flatpak_base: bool,
+    ) -> Vec<PathBuf> {
         let mut paths = Vec::new();
         let root_path = PathBuf::from(shellexpand::tilde(root).into_owned());
         if !root_path.is_dir() {
@@ -242,7 +251,10 @@ impl PrismLauncherApp {
 
             if let Some(name) = current.file_name().and_then(|n| n.to_str()) {
                 let name_lower = name.to_lowercase();
-                if name_lower.contains("prismlauncher") || name_lower.contains("prism-launcher") || name_lower.contains("prismlauncher") {
+                if name_lower.contains("prismlauncher")
+                    || name_lower.contains("prism-launcher")
+                    || name_lower.contains("prismlauncher")
+                {
                     let candidate = current.join("instances");
                     if candidate.is_dir() {
                         paths.push(candidate);
@@ -303,8 +315,27 @@ impl PrismLauncherApp {
         paths
     }
 
+    fn unique_directories(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+        let mut seen = HashSet::new();
+        let mut unique = Vec::new();
+
+        for path in paths {
+            let normalized = if let Ok(canonical) = fs::canonicalize(&path) {
+                canonical
+            } else {
+                path.clone()
+            };
+            if seen.insert(normalized) {
+                unique.push(path);
+            }
+        }
+
+        unique
+    }
+
     fn discover_modpacks(paths: &[PathBuf]) -> Vec<PrismModpack> {
         let mut instances = Vec::new();
+        let paths = Self::unique_directories(paths.to_vec());
 
         for path in paths {
             if !path.exists() || !path.is_dir() {
@@ -316,9 +347,17 @@ impl PrismLauncherApp {
                     if !entry_path.is_dir() {
                         continue;
                     }
-                    let name = Self::read_modpack_name(&entry_path)
-                        .unwrap_or_else(|| entry_path.file_name().unwrap_or_default().to_string_lossy().into_owned());
-                    instances.push(PrismModpack { name, path: entry_path });
+                    let name = Self::read_modpack_name(&entry_path).unwrap_or_else(|| {
+                        entry_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned()
+                    });
+                    instances.push(PrismModpack {
+                        name,
+                        path: entry_path,
+                    });
                 }
             }
         }
@@ -342,13 +381,20 @@ impl PrismLauncherApp {
             }
         }
 
-        candidate_dirs.sort();
-        candidate_dirs.dedup();
+        candidate_dirs = Self::unique_directories(candidate_dirs);
 
         for instance_dir in candidate_dirs {
-            let name = Self::read_modpack_name(&instance_dir)
-                .unwrap_or_else(|| instance_dir.file_name().unwrap_or_default().to_string_lossy().into_owned());
-            instances.push(PrismModpack { name, path: instance_dir });
+            let name = Self::read_modpack_name(&instance_dir).unwrap_or_else(|| {
+                instance_dir
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            });
+            instances.push(PrismModpack {
+                name,
+                path: instance_dir,
+            });
         }
 
         instances
@@ -384,7 +430,10 @@ impl PrismLauncherApp {
     }
 
     fn read_modpack_name(instance_dir: &PathBuf) -> Option<String> {
-        let cfg_paths = [instance_dir.join("instance.cfg"), instance_dir.join(".minecraft/instance.cfg")];
+        let cfg_paths = [
+            instance_dir.join("instance.cfg"),
+            instance_dir.join(".minecraft/instance.cfg"),
+        ];
         for path in cfg_paths {
             if let Ok(contents) = fs::read_to_string(&path) {
                 for line in contents.lines() {
@@ -430,7 +479,9 @@ impl PrismLauncherApp {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let launcher_dir = instance_root.parent().unwrap_or_else(|| instance_root.as_path());
+        let launcher_dir = instance_root
+            .parent()
+            .unwrap_or_else(|| instance_root.as_path());
 
         let result = match instance.kind {
             PrismInstanceKind::Flatpak => Command::new("flatpak")
@@ -490,7 +541,8 @@ impl PrismLauncherApp {
                     EventType::ButtonPressed(button, _) => match button {
                         Button::DPadDown => {
                             if !self.instances.is_empty() {
-                                self.selected_index = (self.selected_index + 1) % self.instances.len();
+                                self.selected_index =
+                                    (self.selected_index + 1) % self.instances.len();
                             }
                         }
                         Button::DPadUp => {
@@ -524,9 +576,7 @@ impl PrismLauncherApp {
 impl App for PrismLauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         self.handle_gamepad_events();
-        self.controller_style = self
-            .controller_style
-            .clone();
+        self.controller_style = self.controller_style.clone();
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("PrismDeck Controller Launcher");
@@ -555,8 +605,11 @@ impl App for PrismLauncherApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (index, instance) in self.instances.iter().enumerate() {
                         let selected = index == self.selected_index;
-                        let frame = egui::Frame::canvas(ui.style())
-                            .fill(if selected { ui.style().visuals.selection.bg_fill } else { ui.style().visuals.extreme_bg_color });
+                        let frame = egui::Frame::canvas(ui.style()).fill(if selected {
+                            ui.style().visuals.selection.bg_fill
+                        } else {
+                            ui.style().visuals.extreme_bg_color
+                        });
                         frame.show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(if selected { "▶" } else { "" });
