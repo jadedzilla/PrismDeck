@@ -642,13 +642,13 @@ impl PrismLauncherApp {
             for event in events {
                 match event {
                     EventType::ButtonPressed(button, _) => match button {
-                        Button::DPadDown => {
+                        Button::DPadRight => {
                             if !self.instances.is_empty() {
                                 self.selected_index =
                                     (self.selected_index + 1) % self.instances.len();
                             }
                         }
-                        Button::DPadUp => {
+                        Button::DPadLeft => {
                             if !self.instances.is_empty() {
                                 self.selected_index = if self.selected_index == 0 {
                                     self.instances.len() - 1
@@ -693,7 +693,7 @@ impl App for PrismLauncherApp {
 
             ui.horizontal(|ui| {
                 ui.label("Navigate:");
-                ui.label("D-Pad / Stick");
+                ui.label("D-Pad left/right");
                 ui.separator();
                 ui.label("Select:");
                 ui.label(self.controller_style.confirm_button_label());
@@ -794,7 +794,7 @@ impl App for PrismLauncherApp {
                                 let hint_text = if selected {
                                     "Selected"
                                 } else {
-                                    "Use D-pad to move and confirm to launch."
+                                    "Use D-pad left/right to move and confirm to launch."
                                 };
                                 ui.painter().text(
                                     rect.center_bottom() + egui::vec2(0.0, -22.0),
@@ -816,12 +816,12 @@ impl App for PrismLauncherApp {
             });
         });
 
-        if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
             if !self.instances.is_empty() {
                 self.selected_index = (self.selected_index + 1) % self.instances.len();
             }
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
             if !self.instances.is_empty() {
                 self.selected_index = if self.selected_index == 0 {
                     self.instances.len().saturating_sub(1)
